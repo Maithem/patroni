@@ -1071,6 +1071,20 @@ class TestHa(PostgresInit):
         self.ha.is_paused = true
         self.assertFalse(self.ha.is_healthiest_node())
 
+    def test_is_healthiest_node_starting(self):
+        """A replica in STARTING state must not participate in the leader race.
+
+        Reproduces the scenario from https://github.com/patroni/patroni/discussions/3517
+        where the is_starting() guard was mistakenly removed in PR #2726.
+        """
+        self.ha.is_failsafe_mode = true
+        self.ha.state_handler.is_primary = false
+        self.ha.patroni.nofailover = False
+        self.ha.fetch_node_status = get_node_status()
+        self.ha.dcs._last_failsafe = {'postgresql0': ''}
+        with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+            self.assertFalse(self.ha.is_healthiest_node())
+
     def test__is_healthiest_node(self):
         self.p.is_primary = false
         self.ha.cluster = get_cluster_initialized_without_leader(sync=('postgresql1', self.p.name))

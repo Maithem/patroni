@@ -344,6 +344,32 @@ class TestPostgresql(BaseTestPostgresql):
         with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
             self.assertEqual(self.p.config.check_recovery_conf(None), (False, False))
 
+    @patch.object(Postgresql, 'major_version', PropertyMock(return_value=120000))
+    @patch.object(Postgresql, 'is_running', MockPostmaster)
+    @patch.object(MockPostmaster, 'create_time', Mock(return_value=1234567), create=True)
+    def test_check_recovery_conf_starting_state(self):
+        """Test that check_recovery_conf detects mismatch when PG is in STARTING state.
+
+        Reproduces the scenario from https://github.com/patroni/patroni/discussions/3517
+        where a standby gets permanently stuck because:
+        1. write_recovery_conf is called with minimal params (no primary_conninfo)
+        2. PG enters STARTING state (crash recovery)
+        3. _read_recovery_params returns (None, False) because PG is starting
+        4. check_recovery_conf must use _current_recovery_params from write_recovery_conf
+        5. Without the fix, _current_recovery_params lacks default entries for missing params
+           so comparison fails to detect the mismatch with desired recovery params
+        """
+        self.p.call_nowait(CallbackAction.ON_START)
+        self.p.config.write_recovery_conf({'standby_mode': 'on'})
+        self.p.config.write_postgresql_conf()
+
+        conninfo = {'host': '1', 'password': 'bar'}
+        with patch.object(Postgresql, 'is_starting', Mock(return_value=True)):
+            with patch('patroni.postgresql.config.ConfigHandler.primary_conninfo_params',
+                        Mock(return_value=conninfo)):
+                change_required, restart_required = self.p.config.check_recovery_conf(None)
+                self.assertTrue(change_required)
+
     @patch.object(Postgresql, 'major_version', PropertyMock(return_value=100000))
     @patch.object(Postgresql, 'primary_conninfo', Mock(return_value='host=1'))
     def test__read_recovery_params_pre_v12(self):
