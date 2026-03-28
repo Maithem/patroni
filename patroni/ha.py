@@ -1542,6 +1542,9 @@ class Ha(object):
         if self.patroni.nofailover:  # nofailover tag makes node always unhealthy
             return False
 
+        if self.state_handler.is_starting():
+            return False
+
         if self.cluster.failover:
             # When doing a switchover in synchronous mode only synchronous nodes and former leader are allowed to race
             if self.cluster.failover.leader and self.sync_mode_is_active() \
